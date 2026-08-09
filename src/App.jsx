@@ -1,26 +1,32 @@
-import Header from "./components/Header";
-import About from "./components/About";
-import Skills from "./components/Skills";
-import Footer from "./components/Footer";
+import { useState } from "react";
+import { Routes, Route } from "react-router-dom";
+
+import NavBar from "./components/NavBar";
+
+import Home from "./pages/Home";
+import Projects from "./pages/Projects";
+import Contact from "./pages/Contact";
 
 function App() {
-  const skills = [
-    "HTML",
-    "CSS",
-    "JavaScript",
-    "React",
-    "Node.js",
-  ];
+  const [theme, setTheme] = useState("light-mode");
+
+  const toggleTheme = () => {
+    setTheme((current) => (current === "light-mode" ? "dark-mode" : "light-mode"));
+  };
 
   return (
-    <div>
-      <Header name="Bhushan Patil" />
+    <div className={theme}>
+      <button type="button" onClick={toggleTheme} style={{ marginBottom: 16 }}>
+        {theme === "light-mode" ? "Switch to dark mode" : "Switch to light mode"}
+      </button>
 
-      <About />
+      <NavBar />
 
-      <Skills skillList={skills} />
-
-      <Footer email="bhushan.mahendra.patil@gmail.com" />
+      <Routes>
+        <Route path="/" element={<Home />} />
+        <Route path="/projects" element={<Projects />} />
+        <Route path="/contact" element={<Contact />} />
+      </Routes>
     </div>
   );
 }

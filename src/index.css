@@ -3,6 +3,19 @@ body {
   font-family: Arial, sans-serif;
   background-color: #f4f4f4;
 }
+.light-mode {
+  background-color: white;
+  color: black;
+  padding: 20px;
+  min-height: 400px;
+}
+
+.dark-mode {
+  background-color: #222;
+  color: white;
+  padding: 20px;
+  min-height: 400px;
+}
 
 div {
   max-width: 800px;
