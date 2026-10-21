@@ -23,6 +23,9 @@ const {
 const taskEvents = require("./events");
 const { getEventAuditLogs } = require("./listeners");
 
+// Practical 13: AI Integration Service
+const { generateTaskDescription } = require("./services/aiService");
+
 const app = express();
 const PORT = process.env.PORT || 5000;
 const MONGO_URI = process.env.MONGO_URI || "mongodb://127.0.0.1:27017/taskmanager";
@@ -343,6 +346,36 @@ app.delete("/tasks/:id", optionalAuth, async (req, res, next) => {
     });
   } catch (error) {
     next(error);
+  }
+});
+
+// ==========================================
+// AI TASK ENHANCEMENT API (Practical 13)
+// ==========================================
+
+app.post("/api/ai/generate-description", optionalAuth, async (req, res, next) => {
+  try {
+    const { title } = req.body;
+
+    if (!title || typeof title !== "string" || title.trim().length === 0) {
+      return res.status(400).json({
+        error: "Validation failed: 'title' is required to generate a task description.",
+      });
+    }
+
+    // Call AI integration service with rate limiting and graceful degradation
+    const aiResult = await generateTaskDescription(title.trim());
+
+    res.status(200).json(aiResult);
+  } catch (error) {
+    console.error("[AI Service Route Error]", error);
+    // Graceful Degradation: Never crash the application on AI failure
+    res.status(200).json({
+      description: `Complete task: ${req.body.title || "Untitled"}. Ensure implementation and verification steps are completed.`,
+      source: "fallback",
+      fallback: true,
+      disclaimer: "Fallback suggestion provided due to unexpected internal processing issue.",
+    });
   }
 });
 
