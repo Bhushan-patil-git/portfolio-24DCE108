@@ -10,6 +10,15 @@ const User = require("./models/User");
 const { authMiddleware, optionalAuth } = require("./middleware/auth");
 const { validateTaskInput, validateRegisterInput } = require("./middleware/validate");
 
+// Practical 9: In-Memory Caching (node-cache)
+const {
+  getCache,
+  setCache,
+  invalidateTaskCache,
+  getMetrics,
+  resetMetrics,
+} = require("./cache");
+
 const app = express();
 const PORT = process.env.PORT || 5000;
 const MONGO_URI = process.env.MONGO_URI || "mongodb://127.0.0.1:27017/taskmanager";
@@ -134,24 +143,63 @@ app.get("/me", authMiddleware, async (req, res, next) => {
 });
 
 // ==========================================
-// TASK ROUTES (Practical 5/6/7)
+// CACHE METRICS & CONTROL (Practical 9)
 // ==========================================
 
-// GET /tasks - Read all tasks
+app.get("/cache-stats", (req, res) => {
+  res.status(200).json(getMetrics());
+});
+
+app.post("/cache-reset", (req, res) => {
+  resetMetrics();
+  res.status(200).json({ message: "Cache statistics reset successfully." });
+});
+
+// ==========================================
+// TASK ROUTES (Practical 5/6/7/9)
+// ==========================================
+
+// GET /tasks - Read all tasks with in-memory caching
 app.get("/tasks", optionalAuth, async (req, res, next) => {
+  const startTime = Date.now();
   try {
+    const bypassCache = req.query.no_cache === "true";
+    const cacheKey = req.user ? `tasks_user_${req.user.id}` : "all_tasks";
+
+    // 1. Check cache first (Cache HIT)
+    if (!bypassCache) {
+      const { data: cachedTasks, hit } = getCache(cacheKey);
+      if (hit && cachedTasks) {
+        const duration = Date.now() - startTime;
+        res.setHeader("X-Cache", "HIT");
+        res.setHeader("X-Response-Time", `${duration}ms`);
+        return res.status(200).json(cachedTasks);
+      }
+    }
+
+    // 2. Cache MISS: Query MongoDB
     const filter = req.user
       ? { $or: [{ user: req.user.id }, { user: { $exists: false } }, { user: null }] }
       : {};
     const tasks = await Task.find(filter).sort({ createdAt: -1 });
+
+    // 3. Store result in cache with 60s TTL
+    if (!bypassCache) {
+      setCache(cacheKey, tasks, 60);
+    }
+
+    const duration = Date.now() - startTime;
+    res.setHeader("X-Cache", bypassCache ? "BYPASS" : "MISS");
+    res.setHeader("X-Response-Time", `${duration}ms`);
     res.status(200).json(tasks);
   } catch (error) {
     next(error);
   }
 });
 
-// GET /tasks/:id - Read single task
+// GET /tasks/:id - Read single task with single-task caching
 app.get("/tasks/:id", optionalAuth, async (req, res, next) => {
+  const startTime = Date.now();
   try {
     const { id } = req.params;
 
@@ -159,18 +207,38 @@ app.get("/tasks/:id", optionalAuth, async (req, res, next) => {
       return res.status(400).json({ error: "Invalid task ID format." });
     }
 
+    const cacheKey = `task_${id}`;
+    const bypassCache = req.query.no_cache === "true";
+
+    if (!bypassCache) {
+      const { data: cachedTask, hit } = getCache(cacheKey);
+      if (hit && cachedTask) {
+        const duration = Date.now() - startTime;
+        res.setHeader("X-Cache", "HIT");
+        res.setHeader("X-Response-Time", `${duration}ms`);
+        return res.status(200).json(cachedTask);
+      }
+    }
+
     const task = await Task.findById(id);
     if (!task) {
       return res.status(404).json({ error: "Task not found." });
     }
 
+    if (!bypassCache) {
+      setCache(cacheKey, task, 60);
+    }
+
+    const duration = Date.now() - startTime;
+    res.setHeader("X-Cache", bypassCache ? "BYPASS" : "MISS");
+    res.setHeader("X-Response-Time", `${duration}ms`);
     res.status(200).json(task);
   } catch (error) {
     next(error);
   }
 });
 
-// POST /tasks - Create task with validation
+// POST /tasks - Create task with validation and cache invalidation
 app.post("/tasks", optionalAuth, validateTaskInput, async (req, res, next) => {
   try {
     const taskData = {
@@ -184,13 +252,17 @@ app.post("/tasks", optionalAuth, validateTaskInput, async (req, res, next) => {
     }
 
     const task = await Task.create(taskData);
+
+    // Invalidate cache on write
+    invalidateTaskCache();
+
     res.status(201).json(task);
   } catch (error) {
     next(error);
   }
 });
 
-// PUT /tasks/:id - Update task with validation
+// PUT /tasks/:id - Update task with validation and cache invalidation
 app.put("/tasks/:id", optionalAuth, validateTaskInput, async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -208,13 +280,16 @@ app.put("/tasks/:id", optionalAuth, validateTaskInput, async (req, res, next) =>
       return res.status(404).json({ error: "Task not found." });
     }
 
+    // Invalidate both collection and single task cache
+    invalidateTaskCache(id);
+
     res.status(200).json(task);
   } catch (error) {
     next(error);
   }
 });
 
-// DELETE /tasks/:id - Delete task
+// DELETE /tasks/:id - Delete task and invalidate cache
 app.delete("/tasks/:id", optionalAuth, async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -228,6 +303,9 @@ app.delete("/tasks/:id", optionalAuth, async (req, res, next) => {
     if (!task) {
       return res.status(404).json({ error: "Task not found." });
     }
+
+    // Invalidate cache on delete
+    invalidateTaskCache(id);
 
     res.status(200).json({ message: "Task deleted successfully.", id });
   } catch (error) {
