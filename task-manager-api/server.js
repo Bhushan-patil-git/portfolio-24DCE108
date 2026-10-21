@@ -1,4 +1,5 @@
 const express = require("express");
+const cors = require("cors");
 const mongoose = require("mongoose");
 require("dotenv").config();
 
@@ -8,8 +9,11 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 const MONGO_URI = process.env.MONGO_URI || "mongodb://127.0.0.1:27017/taskmanager";
 
+// Core Middlewares
+app.use(cors());
 app.use(express.json());
 
+// Request logging middleware
 app.use((req, res, next) => {
   console.log(`${req.method} ${req.url} - ${new Date().toISOString()}`);
   next();
@@ -20,6 +24,7 @@ mongoose
   .then(() => console.log("MongoDB connected successfully"))
   .catch((err) => console.error("MongoDB connection error:", err));
 
+// Task CRUD Routes (Practical 4 & 5, wired to React in Practical 6)
 app.get("/tasks", async (req, res, next) => {
   try {
     const tasks = await Task.find();
@@ -81,10 +86,12 @@ app.delete("/tasks/:id", async (req, res, next) => {
   }
 });
 
+// 404 Handler
 app.use((req, res) => {
   res.status(404).json({ error: "Endpoint not found" });
 });
 
+// Global Error Handler
 app.use((err, req, res, next) => {
   console.error(err.stack);
 
