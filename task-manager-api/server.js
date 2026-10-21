@@ -19,6 +19,10 @@ const {
   resetMetrics,
 } = require("./cache");
 
+// Practical 10: Event-Driven Architecture (EventEmitter)
+const taskEvents = require("./events");
+const { getEventAuditLogs } = require("./listeners");
+
 const app = express();
 const PORT = process.env.PORT || 5000;
 const MONGO_URI = process.env.MONGO_URI || "mongodb://127.0.0.1:27017/taskmanager";
@@ -156,7 +160,15 @@ app.post("/cache-reset", (req, res) => {
 });
 
 // ==========================================
-// TASK ROUTES (Practical 5/6/7/9)
+// EVENT AUDIT LOGS (Practical 10)
+// ==========================================
+
+app.get("/event-logs", (req, res) => {
+  res.status(200).json(getEventAuditLogs());
+});
+
+// ==========================================
+// TASK ROUTES (Practical 5/6/7/9/10)
 // ==========================================
 
 // GET /tasks - Read all tasks with in-memory caching
@@ -238,7 +250,7 @@ app.get("/tasks/:id", optionalAuth, async (req, res, next) => {
   }
 });
 
-// POST /tasks - Create task with validation and cache invalidation
+// POST /tasks - Create task with validation, cache invalidation & EventEmitter
 app.post("/tasks", optionalAuth, validateTaskInput, async (req, res, next) => {
   try {
     const taskData = {
@@ -256,7 +268,19 @@ app.post("/tasks", optionalAuth, validateTaskInput, async (req, res, next) => {
     // Invalidate cache on write
     invalidateTaskCache();
 
+    // Immediate response to client
+    const apiResponseSentTimestamp = new Date().toISOString();
+    console.log(`[API] Response 201 sent to client at: ${apiResponseSentTimestamp}`);
     res.status(201).json(task);
+
+    // Practical 10: Asynchronously emit background task event without blocking
+    setImmediate(() => {
+      taskEvents.emit("task-created", {
+        task,
+        triggeredBy: req.user ? req.user.email : "Anonymous / Guest",
+        apiResponseTime: apiResponseSentTimestamp,
+      });
+    });
   } catch (error) {
     next(error);
   }
@@ -289,7 +313,7 @@ app.put("/tasks/:id", optionalAuth, validateTaskInput, async (req, res, next) =>
   }
 });
 
-// DELETE /tasks/:id - Delete task and invalidate cache
+// DELETE /tasks/:id - Delete task, invalidate cache & emit event
 app.delete("/tasks/:id", optionalAuth, async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -308,6 +332,15 @@ app.delete("/tasks/:id", optionalAuth, async (req, res, next) => {
     invalidateTaskCache(id);
 
     res.status(200).json({ message: "Task deleted successfully.", id });
+
+    // Practical 10: Emit task-deleted event asynchronously
+    setImmediate(() => {
+      taskEvents.emit("task-deleted", {
+        taskId: id,
+        taskTitle: task.title,
+        deletedBy: req.user ? req.user.email : "Anonymous / Guest",
+      });
+    });
   } catch (error) {
     next(error);
   }
